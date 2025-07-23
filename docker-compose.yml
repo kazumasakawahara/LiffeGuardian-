@@ -1,0 +1,236 @@
+version: '3.8'
+
+services:
+  # ========================================
+  # データベースサービス
+  # ========================================
+  
+  # Neo4j - メインのグラフデータベース
+  neo4j:
+    image: neo4j:5.15-community
+    container_name: lifeguardian-neo4j
+    restart: unless-stopped
+    ports:
+      - "7474:7474"  # Neo4j Browser
+      - "7687:7687"  # Bolt protocol
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+      - neo4j_import:/var/lib/neo4j/import
+      - neo4j_plugins:/plugins
+      - ./database/schema:/import/schema
+    environment:
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:-lifeguardian2024}
+      - NEO4J_PLUGINS=["apoc", "graph-data-science"]
+      - NEO4J_apoc_export_file_enabled=true
+      - NEO4J_apoc_import_file_enabled=true
+      - NEO4J_apoc_import_file_use__neo4j__config=true
+      - NEO4J_dbms_memory_pagecache_size=1G
+      - NEO4J_dbms_memory_heap_max__size=1G
+      - NEO4J_dbms_default__listen__address=0.0.0.0
+    healthcheck:
+      test: ["CMD", "neo4j", "status"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    networks:
+      - lifeguardian-network
+
+  # PostgreSQL - 補助データ・認証・ログ用
+  postgres:
+    image: postgres:16-alpine
+    container_name: lifeguardian-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/postgres/init:/docker-entrypoint-initdb.d
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-lifeguardian}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-lifeguardian2024}
+      - POSTGRES_DB=${POSTGRES_DB:-lifeguardian}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-lifeguardian}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - lifeguardian-network
+
+  # Redis - キャッシュ・セッション管理
+  redis:
+    image: redis:7-alpine
+    container_name: lifeguardian-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-lifeguardian2024}
+    healthcheck:
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - lifeguardian-network
+
+  # Node.js バックエンドAPI
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      target: ${BUILD_TARGET:-development}
+    container_name: lifeguardian-backend
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+      - "9229:9229"  # Node.js デバッグポート
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - PORT=3001
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD:-lifeguardian2024}
+      - POSTGRES_CONNECTION_STRING=postgresql://${POSTGRES_USER:-lifeguardian}:${POSTGRES_PASSWORD:-lifeguardian2024}@postgres:5432/${POSTGRES_DB:-lifeguardian}
+      - REDIS_URL=redis://default:${REDIS_PASSWORD:-lifeguardian2024}@redis:6379
+      - JWT_SECRET=${JWT_SECRET:-your-secret-key-change-in-production}
+      - CORS_ORIGIN=http://localhost:3000
+    command: ${BACKEND_COMMAND:-npm run dev}
+    depends_on:
+      neo4j:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - lifeguardian-network
+
+  # React フロントエンド
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: ${BUILD_TARGET:-development}
+    container_name: lifeguardian-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - REACT_APP_API_URL=http://localhost:3001
+      - REACT_APP_N8N_URL=http://localhost:5678
+      - CHOKIDAR_USEPOLLING=true
+    command: ${FRONTEND_COMMAND:-npm start}
+    depends_on:
+      - backend
+    networks:
+      - lifeguardian-network
+
+  # n8n - ワークフロー自動化
+  n8n:
+    image: n8nio/n8n:latest
+    container_name: lifeguardian-n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+    environment:
+      - N8N_HOST=localhost
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - NODE_ENV=development
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=${N8N_USER:-admin}
+      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD:-lifeguardian2024}
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=n8n
+      - DB_POSTGRESDB_USER=${POSTGRES_USER:-lifeguardian}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD:-lifeguardian2024}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - lifeguardian-network
+
+  # Nginx - リバースプロキシ
+  nginx:
+    image: nginx:alpine
+    container_name: lifeguardian-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - nginx_logs:/var/log/nginx
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - lifeguardian-network
+
+  # Adminer - データベース管理UI
+  adminer:
+    image: adminer:latest
+    container_name: lifeguardian-adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - ADMINER_DEFAULT_SERVER=postgres
+      - ADMINER_DESIGN=pepa-linha-dark
+    depends_on:
+      - postgres
+    networks:
+      - lifeguardian-network
+
+  # Portainer - Docker管理UI
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: lifeguardian-portainer
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+      - "9443:9443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    networks:
+      - lifeguardian-network
+
+  # MailHog - 開発用メールサーバー
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: lifeguardian-mailhog
+    restart: unless-stopped
+    ports:
+      - "1025:1025"  # SMTP
+      - "8025:8025"  # Web UI
+    networks:
+      - lifeguardian-network
+
+networks:
+  lifeguardian-network:
+    driver: bridge
+
+volumes:
+  neo4j_data:
+  neo4j_logs:
+  neo4j_import:
+  neo4j_plugins:
+  postgres_data:
+  redis_data:
+  n8n_data:
+  nginx_logs:
+  portainer_data:
