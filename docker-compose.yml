@@ -20,7 +20,7 @@ services:
       - neo4j_plugins:/plugins
       - ./database/schema:/import/schema
     environment:
-      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD:-lifeguardian2024}
+      - NEO4J_AUTH=neo4j/${NEO4J_PASSWORD}
       - NEO4J_PLUGINS=["apoc", "graph-data-science"]
       - NEO4J_apoc_export_file_enabled=true
       - NEO4J_apoc_import_file_enabled=true
@@ -47,9 +47,9 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./database/postgres/init:/docker-entrypoint-initdb.d
     environment:
-      - POSTGRES_USER=${POSTGRES_USER:-lifeguardian}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-lifeguardian2024}
-      - POSTGRES_DB=${POSTGRES_DB:-lifeguardian}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-lifeguardian}"]
       interval: 10s
