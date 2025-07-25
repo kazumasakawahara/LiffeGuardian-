@@ -1,25 +1,27 @@
-FROM node:20-alpine AS base
-RUN apk add --no-cache libc6-compat
+FROM node:18-alpine AS base
 WORKDIR /app
 
-FROM base AS deps
-COPY package*.json ./
-RUN npm ci
-
+# 開発環境
 FROM base AS development
-COPY package*.json ./
+# package.jsonのみコピー（キャッシュ効率化）
+COPY package.json ./
+# 依存関係をインストール
 RUN npm install
+# ソースコードをコピー
 COPY . .
+# ポート公開
 EXPOSE 3000
+# 開発サーバー起動
 CMD ["npm", "start"]
 
+# ビルド環境
 FROM base AS builder
-COPY package*.json ./
-COPY --from=deps /app/node_modules ./node_modules
+COPY package.json ./
+RUN npm ci --only=production
 COPY . .
-ENV REACT_APP_API_URL=/api
 RUN npm run build
 
+# 本番環境
 FROM nginx:alpine AS production
 COPY --from=builder /app/build /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf

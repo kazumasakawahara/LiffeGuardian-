@@ -1,31 +1,25 @@
-FROM node:20-alpine AS base
-RUN apk add --no-cache libc6-compat python3 make g++
+FROM node:18-alpine AS base
 WORKDIR /app
 
-FROM base AS deps
-COPY package*.json ./
-RUN npm ci
-
+# 開発環境
 FROM base AS development
 COPY package*.json ./
 RUN npm install
 COPY . .
-EXPOSE 3001 9229
+EXPOSE 3001
 CMD ["npm", "run", "dev"]
 
+# ビルド環境
 FROM base AS builder
 COPY package*.json ./
-COPY --from=deps /app/node_modules ./node_modules
+RUN npm ci --only=production
 COPY . .
 RUN npm run build
 
+# 本番環境
 FROM base AS production
-ENV NODE_ENV production
-RUN addgroup -g 1001 -S nodejs
-RUN adduser -S nodejs -u 1001
 COPY package*.json ./
-RUN npm ci --only=production && npm cache clean --force
-COPY --from=builder --chown=nodejs:nodejs /app/dist ./dist
-USER nodejs
+RUN npm ci --only=production
+COPY --from=builder /app/dist ./dist
 EXPOSE 3001
-CMD ["node", "dist/index.js"]
+CMD ["npm", "start"]
