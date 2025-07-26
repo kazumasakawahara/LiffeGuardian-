@@ -59,7 +59,15 @@ export class PersonService {
         }) RETURN p`,
         {
           id,
-          ...personData,
+          name: personData.name,
+          birthDate: personData.birthDate,
+          profileImageUrl: personData.profileImageUrl || null,
+          medicalHistory: personData.medicalHistory || null,
+          currentHealthStatus: personData.currentHealthStatus || null,
+          livingEnvironment: personData.livingEnvironment || null,
+          familyStructure: personData.familyStructure || null,
+          communicationAbility: personData.communicationAbility || null,
+          cognitiveStatus: personData.cognitiveStatus || null,
           createdAt
         }
       );

@@ -4,6 +4,13 @@ import helmet from 'helmet';
 import dotenv from 'dotenv';
 import { neo4jDriver } from './config/database';
 import personRoutes from './routes/person.routes';
+import supporterRoutes from './routes/supporter.routes';
+import lifeEventRoutes from './routes/lifeEvent.routes';
+import decisionRoutes from './routes/decision.routes';
+import preferenceRoutes from './routes/preference.routes';
+import documentRoutes from './routes/document.routes';
+import emergencyInfoRoutes from './routes/emergencyInfo.routes';
+import aiInteractionRoutes from './routes/aiInteraction.routes';
 
 // 環境変数の読み込み
 dotenv.config();
@@ -27,6 +34,13 @@ app.get('/health', (req, res) => {
 
 // ルート
 app.use('/api/persons', personRoutes);
+app.use('/api/supporters', supporterRoutes);
+app.use('/api/life-events', lifeEventRoutes);
+app.use('/api/decisions', decisionRoutes);
+app.use('/api/preferences', preferenceRoutes);
+app.use('/api/documents', documentRoutes);
+app.use('/api/emergency-info', emergencyInfoRoutes);
+app.use('/api/ai-interactions', aiInteractionRoutes);
 
 // エラーハンドリング
 app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
